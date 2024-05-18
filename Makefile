@@ -6,8 +6,8 @@ dev:
 build:
 	@go build -o bin/${BINARY_NAME} cmd/minesweeper/main.go
 
-run:
+run: build
 	@./bin/${BINARY_NAME}
 
 test:
-	@go test -v ./tests
+	@go test -v ./... -count=1
