@@ -1,7 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"github.com/leiswatch/minesweeper/internal/game"
+)
 
 func main() {
-	fmt.Println("Hello world")
+	game.StartGame()
 }

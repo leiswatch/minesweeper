@@ -1,5 +1,8 @@
 BINARY_NAME=minesweeper
 
+install:
+	@go mod tidy
+
 dev:
 	@go run cmd/minesweeper/main.go
 
