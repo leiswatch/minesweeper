@@ -3,8 +3,11 @@ package game
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 )
 
 type position struct {
@@ -13,21 +16,22 @@ type position struct {
 }
 
 type gameModel struct {
-	board    [][]byte
+	board    [][]string
 	position position
+	flags    []position
 }
 
-func newBoard(width, height int) [][]byte {
-	board := make([][]byte, width)
+const (
+	cursor string = "x"
+	flag   string = "F"
+	hidden string = "."
+)
 
-	for i := 0; i < width; i++ {
-		board[i] = make([]byte, height)
-	}
+func newBoard(width, height int) [][]string {
+	board := make([][]string, width)
 
-	for i := range board {
-		for j := range board[i] {
-			board[i][j] = '.'
-		}
+	for i := range width {
+		board[i] = make([]string, height)
 	}
 
 	return board
@@ -81,6 +85,19 @@ func (m gameModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.position.x > 0 {
 				m.position.x--
 			}
+
+		case "f":
+			currPosition := position{
+				x: m.position.x,
+				y: m.position.y,
+			}
+
+			if !slices.Contains(m.flags, currPosition) {
+				m.flags = append(m.flags, currPosition)
+			} else {
+				idx := slices.Index(m.flags, currPosition)
+				m.flags = slices.Delete(m.flags, idx, idx+1)
+			}
 		}
 	}
 
@@ -93,22 +110,26 @@ func (m gameModel) View() string {
 	// The header
 	s := "Minesweeper\n\n"
 
-	var cursor byte = 'x'
-
-	// Iterate over our choices
 	for i := range len(m.board) {
 		for j := range len(m.board[i]) {
-			if m.position.x == i && m.position.y == j {
-				m.board[i][j] = cursor
+			currCell := position{
+				x: i,
+				y: j,
+			}
+
+			if m.position.x == currCell.x && m.position.y == currCell.y {
+				m.board[currCell.x][currCell.y] = cursor
+			} else if slices.Contains(m.flags, currCell) {
+				m.board[currCell.x][currCell.y] = flag
 			} else {
-				m.board[i][j] = '.'
+				m.board[currCell.x][currCell.y] = hidden
 			}
 		}
-
-		// Render the row
-		s += fmt.Sprintf("%s\n", m.board[i])
 	}
 
+	boardTable := createBoardTable(m.board)
+
+	s += fmt.Sprintf("%s\n", boardTable)
 	// The footer
 	s += "\nPress q to quit.\n"
 
@@ -116,8 +137,28 @@ func (m gameModel) View() string {
 	return s
 }
 
+func createBoardTable(rows [][]string) *table.Table {
+	return table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderRow(true).
+		StyleFunc(
+			func(row, col int) lipgloss.Style {
+				return lipgloss.NewStyle().
+					Align(
+						lipgloss.Position(lipgloss.Center),
+						lipgloss.Position(lipgloss.Center),
+					).
+					PaddingLeft(1).
+					PaddingRight(1)
+			}).
+		BorderStyle(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#585b70")),
+		).Rows(rows...)
+}
+
 func StartGame() {
-	p := tea.NewProgram(newGameModel(10, 15))
+	p := tea.NewProgram(newGameModel(8, 8))
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
