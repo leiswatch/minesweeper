@@ -2,57 +2,120 @@ package game
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"os"
-	"slices"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 )
 
-type position struct {
+type state struct {
+	win  bool
+	lose bool
+}
+
+type square struct {
+	isFlag bool
+	isMine bool
+	el     string
+}
+
+type board = [][]square
+
+type cursorPos struct {
 	x int
 	y int
 }
 
-type gameModel struct {
-	board    [][]string
-	position position
-	flags    []position
+type model struct {
+	board     board
+	cursorPos cursorPos
+	state     state
 }
 
 const (
-	cursor string = "x"
-	flag   string = "F"
-	hidden string = "."
+	cursorEl string = "x"
+	flagEl   string = "F"
+	hiddenEl string = "."
+	mineEl   string = "B"
 )
 
-func newBoard(width, height int) [][]string {
-	board := make([][]string, width)
+type bombPosition struct {
+	x int
+	y int
+}
+
+func generateBombPositions(n int) []bombPosition {
+	seed := uint64(time.Now().UnixNano())
+	r := rand.New(rand.NewPCG(seed, seed))
+
+	m := make(map[bombPosition]int)
+
+	for len(m) < n {
+		x := r.IntN(9)
+		y := r.IntN(9)
+
+		bp := bombPosition{
+			x,
+			y,
+		}
+
+		_, ok := m[bp]
+
+		if ok {
+			m[bp] = m[bp] + 1
+		} else {
+			m[bp] = 1
+		}
+	}
+
+	bombPositions := make([]bombPosition, 0, n)
+
+	for k := range m {
+		bombPositions = append(bombPositions, k)
+	}
+
+	return bombPositions
+}
+
+func newBoard(width, height int) board {
+	board := make(board, width)
+	bp := generateBombPositions(10)
+	fmt.Println(bp)
 
 	for i := range width {
-		board[i] = make([]string, height)
+		board[i] = make([]square, height)
+
+		for j := range height {
+			board[i][j] = square{
+				isFlag: false,
+				isMine: false,
+				el:     hiddenEl,
+			}
+		}
 	}
 
 	return board
 }
 
-func newGameModel(width, height int) gameModel {
-	return gameModel{
+func newModel(width, height int) model {
+	return model{
 		board: newBoard(width, height),
-		position: position{
+		cursorPos: cursorPos{
 			x: width - 1,
 			y: height - 1,
 		},
 	}
 }
 
-func (m gameModel) Init() tea.Cmd {
-	// Just return `nil`, which means "no I/O right now, please."
+func (m model) Init() tea.Cmd {
+	// Just returno `nil`, which means "no I/O right now, please."
 	return nil
 }
 
-func (m gameModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	// Is it a key press?
 	case tea.KeyMsg:
@@ -66,37 +129,39 @@ func (m gameModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// The "up" and "k" keys move the cursor up
 		case "right", "h":
-			if m.position.y > 0 {
-				m.position.y--
+			if m.cursorPos.y > 0 {
+				m.cursorPos.y--
 			}
 
 		// The "down" and "j" keys move the cursor down
 		case "left", "l":
-			if m.position.y < len(m.board[0])-1 {
-				m.position.y++
+			if m.cursorPos.y < len(m.board[0])-1 {
+				m.cursorPos.y++
 			}
 
 		case "down", "j":
-			if m.position.x < len(m.board)-1 {
-				m.position.x++
+			if m.cursorPos.x < len(m.board)-1 {
+				m.cursorPos.x++
 			}
 
 		case "up", "k":
-			if m.position.x > 0 {
-				m.position.x--
+			if m.cursorPos.x > 0 {
+				m.cursorPos.x--
 			}
 
 		case "f":
-			currPosition := position{
-				x: m.position.x,
-				y: m.position.y,
+			m.board[m.cursorPos.x][m.cursorPos.y].isFlag = !m.board[m.cursorPos.x][m.cursorPos.y].isFlag
+
+		case "enter":
+			if m.board[m.cursorPos.x][m.cursorPos.y].isMine && !m.board[m.cursorPos.x][m.cursorPos.y].isFlag {
+				m.state.lose = !m.state.lose
 			}
 
-			if !slices.Contains(m.flags, currPosition) {
-				m.flags = append(m.flags, currPosition)
-			} else {
-				idx := slices.Index(m.flags, currPosition)
-				m.flags = slices.Delete(m.flags, idx, idx+1)
+		case "r":
+			if m.state.lose || m.state.win {
+				m.board = newBoard(9, 9)
+				m.state.lose = false
+				m.state.win = false
 			}
 		}
 	}
@@ -106,28 +171,35 @@ func (m gameModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m gameModel) View() string {
+func (m model) View() string {
 	// The header
 	s := "Minesweeper\n\n"
 
 	for i := range len(m.board) {
 		for j := range len(m.board[i]) {
-			currCell := position{
-				x: i,
-				y: j,
-			}
-
-			if m.position.x == currCell.x && m.position.y == currCell.y {
-				m.board[currCell.x][currCell.y] = cursor
-			} else if slices.Contains(m.flags, currCell) {
-				m.board[currCell.x][currCell.y] = flag
+			if m.board[i][j].isMine && m.state.lose {
+				m.board[i][j].el = mineEl
+			} else if m.cursorPos.x == i && m.cursorPos.y == j {
+				m.board[i][j].el = cursorEl
+			} else if m.board[i][j].isFlag {
+				m.board[i][j].el = flagEl
 			} else {
-				m.board[currCell.x][currCell.y] = hidden
+				m.board[i][j].el = hiddenEl
 			}
 		}
 	}
 
-	boardTable := createBoardTable(m.board)
+	rows := make([][]string, len(m.board))
+
+	for i := range len(m.board) {
+		rows[i] = make([]string, len(m.board[i]))
+
+		for j := range len(m.board[i]) {
+			rows[i][j] = m.board[i][j].el
+		}
+	}
+
+	boardTable := createBoardTable(rows)
 
 	s += fmt.Sprintf("%s\n", boardTable)
 	// The footer
@@ -158,7 +230,7 @@ func createBoardTable(rows [][]string) *table.Table {
 }
 
 func StartGame() {
-	p := tea.NewProgram(newGameModel(8, 8))
+	p := tea.NewProgram(newModel(9, 9))
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
