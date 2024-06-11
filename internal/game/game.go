@@ -37,9 +37,9 @@ type model struct {
 }
 
 const (
-	cursorEl string = "x"
+	cursorEl string = "X"
 	flagEl   string = "F"
-	hiddenEl string = "."
+	hiddenEl string = " "
 	mineEl   string = "B"
 )
 
