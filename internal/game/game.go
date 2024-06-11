@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -82,8 +83,7 @@ func generateBombPositions(n int) []bombPosition {
 
 func newBoard(width, height int) board {
 	board := make(board, width)
-	bp := generateBombPositions(10)
-	fmt.Println(bp)
+	bombPositions := generateBombPositions(10)
 
 	for i := range width {
 		board[i] = make([]square, height)
@@ -91,8 +91,11 @@ func newBoard(width, height int) board {
 		for j := range height {
 			board[i][j] = square{
 				isFlag: false,
-				isMine: false,
-				el:     hiddenEl,
+				isMine: slices.Contains(bombPositions, bombPosition{
+					x: i,
+					y: j,
+				}),
+				el: hiddenEl,
 			}
 		}
 	}
@@ -129,23 +132,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// The "up" and "k" keys move the cursor up
 		case "right", "h":
-			if m.cursorPos.y > 0 {
+			if !(m.state.win || m.state.lose) && m.cursorPos.y > 0 {
 				m.cursorPos.y--
 			}
 
 		// The "down" and "j" keys move the cursor down
 		case "left", "l":
-			if m.cursorPos.y < len(m.board[0])-1 {
+			if !(m.state.win || m.state.lose) && m.cursorPos.y < len(m.board[0])-1 {
 				m.cursorPos.y++
 			}
 
 		case "down", "j":
-			if m.cursorPos.x < len(m.board)-1 {
+			if !(m.state.win || m.state.lose) && m.cursorPos.x < len(m.board)-1 {
 				m.cursorPos.x++
 			}
 
 		case "up", "k":
-			if m.cursorPos.x > 0 {
+			if !(m.state.win || m.state.lose) && m.cursorPos.x > 0 {
 				m.cursorPos.x--
 			}
 
