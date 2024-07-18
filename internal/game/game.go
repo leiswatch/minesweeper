@@ -16,14 +16,14 @@ type state struct {
 	lose bool
 }
 
-type square struct {
-	el     string
-	isFlag bool
-	isMine bool
-	count  int
+type cell struct {
+	char      string
+	isFlagged bool
+	isMine    bool
+	count     int
 }
 
-type board = [][]square
+type board = [][]cell
 
 type coordinates struct {
 	x int
@@ -37,10 +37,11 @@ type model struct {
 }
 
 const (
-	cursorEl string = "X"
-	flagEl   string = "F"
-	hiddenEl string = " "
-	mineEl   string = "B"
+	cursorChar string = "X"
+	flagChar   string = "F"
+	hiddenChar string = " "
+	mineChar   string = "B"
+	emptyChar  string = "."
 )
 
 var directions = [8]coordinates{
@@ -51,7 +52,7 @@ var directions = [8]coordinates{
 	{x: 1, y: -1},
 	{x: 1, y: 1},
 	{x: -1, y: 1},
-	{x: -1, y: 1},
+	{x: -1, y: -1},
 }
 
 func generateBombPositions(n int) []coordinates {
@@ -92,17 +93,19 @@ func newBoard(width, height int) board {
 	bombPositions := generateBombPositions(10)
 
 	for i := range width {
-		board[i] = make([]square, height)
+		board[i] = make([]cell, height)
 
 		for j := range height {
-			board[i][j] = square{
-				isFlag: false,
-				isMine: slices.Contains(bombPositions, coordinates{
-					x: i,
-					y: j,
-				}),
-				el:    hiddenEl,
-				count: -1,
+			coords := coordinates{
+				x: i,
+				y: j,
+			}
+
+			board[i][j] = cell{
+				isFlagged: false,
+				isMine:    slices.Contains(bombPositions, coords),
+				char:      hiddenChar,
+				count:     -1,
 			}
 		}
 	}
@@ -120,12 +123,12 @@ func newModel(width, height int) model {
 	}
 }
 
-func revealCells(b board, row, col int) {
-	if row < 0 || col < 0 || row >= len(b) || col >= len(b[0]) {
+func (m *model) revealCells(row, col int) {
+	if row < 0 || col < 0 || row >= len(m.board) || col >= len(m.board[0]) {
 		return
 	}
 
-	if b[row][col].count > -1 {
+	if m.board[row][col].count >= 0 {
 		return
 	}
 
@@ -133,20 +136,39 @@ func revealCells(b board, row, col int) {
 	for _, dr := range directions {
 		newRow, newCol := row+dr.x, col+dr.y
 
-		if 0 <= newRow && newRow < len(b) && 0 <= newCol && newCol < len(b[0]) && b[newRow][newCol].isMine {
+		if newRow < 0 || newCol < 0 || newRow >= len(m.board) || newCol >= len(m.board[0]) {
+			continue
+		}
+
+		if m.board[newRow][newCol].isMine {
 			mineCount += 1
 		}
 	}
 
+	m.board[row][col].count = mineCount
+
 	if mineCount > 0 {
-		b[row][col].count = mineCount
 		return
 	}
 
-	b[row][col].count = 0
-
 	for _, dr := range directions {
-		revealCells(b, row+dr.x, col+dr.y)
+		m.revealCells(row+dr.x, col+dr.y)
+	}
+}
+
+func (m *model) checkWin() {
+	count := 0
+
+	for i := range m.board {
+		for j := range m.board[i] {
+			if m.board[i][j].char == hiddenChar || m.board[i][j].isFlagged {
+				count += 1
+			}
+		}
+	}
+
+	if count == 10 {
+		m.state.win = true
 	}
 }
 
@@ -157,6 +179,7 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	isGameFinished := m.state.win || m.state.lose
+	isMine := m.board[m.cursorPos.x][m.cursorPos.y].isMine
 
 	switch msg := msg.(type) {
 	// Is it a key press?
@@ -193,25 +216,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "f":
 			if !isGameFinished {
-				m.board[m.cursorPos.x][m.cursorPos.y].isFlag = !m.board[m.cursorPos.x][m.cursorPos.y].isFlag
+				m.board[m.cursorPos.x][m.cursorPos.y].isFlagged = !m.board[m.cursorPos.x][m.cursorPos.y].isFlagged
+				m.checkWin()
 			}
 
 		case "enter":
-			if !isGameFinished && m.board[m.cursorPos.x][m.cursorPos.y].isMine && !m.board[m.cursorPos.x][m.cursorPos.y].isFlag {
+			if !isGameFinished && isMine {
 				m.state.lose = !m.state.lose
-			} else if !isGameFinished {
-				revealCells(m.board, m.cursorPos.x, m.cursorPos.y)
+			} else if !isGameFinished && !isMine {
+				m.revealCells(m.cursorPos.x, m.cursorPos.y)
+				m.checkWin()
 			}
-
-			// if !isGameFinished && m.board[m.cursorPos.x][m.cursorPos.y].isMine && !m.board[m.cursorPos.x][m.cursorPos.y].isFlag {
-			// 	m.state.lose = !m.state.lose
-			// }
 
 		case "r":
 			if isGameFinished {
-				m.board = newBoard(9, 9)
-				m.state.lose = false
-				m.state.win = false
+				m.board, m.state.lose, m.state.win = newBoard(9, 9), false, false
 			}
 		}
 	}
@@ -222,23 +241,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	// The header
-	s := "Minesweeper\n\n"
+	s := ""
+
+	isGameFinished := m.state.win || m.state.lose
 
 	for i := range len(m.board) {
 		for j := range len(m.board[i]) {
-			if m.board[i][j].isMine && m.state.lose {
-				m.board[i][j].el = mineEl
+			if m.state.lose && m.board[i][j].isMine {
+				m.board[i][j].char = mineChar
 			} else if m.cursorPos.x == i && m.cursorPos.y == j {
-				m.board[i][j].el = cursorEl
-			} else if m.board[i][j].isFlag {
-				m.board[i][j].el = flagEl
+				m.board[i][j].char = cursorChar
+			} else if m.board[i][j].isFlagged {
+				m.board[i][j].char = flagChar
 			} else if m.board[i][j].count > 0 {
-				m.board[i][j].el = fmt.Sprint(m.board[i][j].count)
+				m.board[i][j].char = fmt.Sprint(m.board[i][j].count)
 			} else if m.board[i][j].count == 0 {
-				m.board[i][j].el = "."
+				m.board[i][j].char = ui.RenderGrayText(emptyChar)
 			} else {
-				m.board[i][j].el = hiddenEl
+				m.board[i][j].char = hiddenChar
 			}
 		}
 	}
@@ -249,17 +269,27 @@ func (m model) View() string {
 		rows[i] = make([]string, len(m.board[i]))
 
 		for j := range len(m.board[i]) {
-			rows[i][j] = m.board[i][j].el
+			rows[i][j] = m.board[i][j].char
 		}
 	}
 
-	boardTable := ui.NewBoardTable(rows)
+	if m.state.win {
+		s += ui.RenderGreenText("You won!")
+	} else if m.state.lose {
+		s += ui.RenderRedText("You lost!")
+	} else {
+		s += ui.RenderWhiteText("Minesweeper")
+	}
 
-	s += fmt.Sprintf("%s\n", boardTable)
-	// The footer
-	s += "\nPress q to quit.\n"
+	boardTable := ui.NewBoard(rows)
 
-	// Send the UI for rendering
+	s += fmt.Sprintf("\n%s\n", boardTable)
+	if isGameFinished {
+		s += fmt.Sprintf("\nPress %s to %s.", ui.RenderBoldText("r"), ui.RenderBlueText("reload"))
+	}
+
+	s += fmt.Sprintf("\nPress %s to %s.\n", ui.RenderBoldText("q"), ui.RenderRedText("quit"))
+
 	return s
 }
 
