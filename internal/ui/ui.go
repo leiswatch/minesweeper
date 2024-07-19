@@ -5,12 +5,13 @@ import (
 	"github.com/charmbracelet/lipgloss/table"
 )
 
-var (
-	greenColor = lipgloss.Color("#a6e3a1")
-	blueColor  = lipgloss.Color("#89b4fa")
-	redColor   = lipgloss.Color("#f38ba8")
-	whiteColor = lipgloss.Color("#cdd6f4")
-	grayColor  = lipgloss.Color("#585b70")
+const (
+	BlueColor  = lipgloss.Color("#89b4fa")
+	GrayColor  = lipgloss.Color("#585b70")
+	GreenColor = lipgloss.Color("#a6e3a1")
+	PinkColor  = lipgloss.Color("#f5c2e7")
+	RedColor   = lipgloss.Color("#f38ba8")
+	WhiteColor = lipgloss.Color("#cdd6f4")
 )
 
 func NewBoard(rows [][]string) *table.Table {
@@ -29,7 +30,7 @@ func NewBoard(rows [][]string) *table.Table {
 			}).
 		BorderStyle(
 			lipgloss.NewStyle().
-				Foreground(grayColor),
+				Foreground(GrayColor),
 		).Rows(rows...)
 }
 
@@ -37,27 +38,6 @@ func newTextStyle(bold bool) lipgloss.Style {
 	return lipgloss.NewStyle().Height(1).Bold(bold)
 }
 
-func RenderBoldText(s string) string {
-	return newTextStyle(true).Render(s)
+func RenderText(s string, color lipgloss.Color, bold bool) string {
+	return newTextStyle(bold).Foreground(color).Render(s)
 }
-
-func RenderGreenText(s string) string {
-	return newTextStyle(true).Foreground(greenColor).Render(s)
-}
-
-func RenderRedText(s string) string {
-	return newTextStyle(true).Foreground(redColor).Render(s)
-}
-
-func RenderBlueText(s string) string {
-	return newTextStyle(true).Foreground(blueColor).Render(s)
-}
-
-func RenderWhiteText(s string) string {
-	return newTextStyle(false).Foreground(whiteColor).Render(s)
-}
-
-func RenderGrayText(s string) string {
-	return newTextStyle(false).Foreground(grayColor).Render(s)
-}
-

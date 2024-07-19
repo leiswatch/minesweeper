@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,42 +54,11 @@ var directions = [8]coordinates{
 	{x: -1, y: -1},
 }
 
-func generateBombPositions(n int) []coordinates {
+func newBoard(width, height, numMines int) board {
+	board := make(board, width)
+	positions := make([]coordinates, 0, width*height)
 	seed := uint64(time.Now().UnixNano())
 	r := rand.New(rand.NewPCG(seed, seed))
-
-	m := make(map[coordinates]int)
-
-	for len(m) < n {
-		x := r.IntN(9)
-		y := r.IntN(9)
-
-		bp := coordinates{
-			x,
-			y,
-		}
-
-		_, ok := m[bp]
-
-		if ok {
-			m[bp] = m[bp] + 1
-		} else {
-			m[bp] = 1
-		}
-	}
-
-	bombPositions := make([]coordinates, 0, n)
-
-	for k := range m {
-		bombPositions = append(bombPositions, k)
-	}
-
-	return bombPositions
-}
-
-func newBoard(width, height int) board {
-	board := make(board, width)
-	bombPositions := generateBombPositions(10)
 
 	for i := range width {
 		board[i] = make([]cell, height)
@@ -100,22 +68,31 @@ func newBoard(width, height int) board {
 				x: i,
 				y: j,
 			}
+			positions = append(positions, coords)
 
 			board[i][j] = cell{
 				isFlagged: false,
-				isMine:    slices.Contains(bombPositions, coords),
+				isMine:    false,
 				char:      hiddenChar,
 				count:     -1,
 			}
 		}
 	}
 
+	r.Shuffle(len(positions), func(i, j int) {
+		positions[i], positions[j] = positions[j], positions[i]
+	})
+
+	for i := 0; i < numMines; i++ {
+		board[positions[i].x][positions[i].y].isMine = true
+	}
+
 	return board
 }
 
-func newModel(width, height int) model {
+func newModel(width, height, numMines int) model {
 	return model{
-		board: newBoard(width, height),
+		board: newBoard(width, height, numMines),
 		cursorPos: coordinates{
 			x: width - 1,
 			y: height - 1,
@@ -157,86 +134,80 @@ func (m *model) revealCells(row, col int) {
 }
 
 func (m *model) checkWin() {
-	count := 0
+	cells := make([]coordinates, 0)
 
 	for i := range m.board {
 		for j := range m.board[i] {
 			if m.board[i][j].char == hiddenChar || m.board[i][j].isFlagged {
-				count += 1
+				cells = append(cells, coordinates{
+					x: i,
+					y: j,
+				})
 			}
 		}
 	}
 
-	if count == 10 {
+	if len(cells) == 10 {
+		for i := range cells {
+			if !m.board[cells[i].x][cells[i].y].isMine {
+				return
+			}
+		}
+
 		m.state.win = true
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	// Just returno `nil`, which means "no I/O right now, please."
 	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	currX := m.cursorPos.x
+	currY := m.cursorPos.y
 	isGameFinished := m.state.win || m.state.lose
-	isMine := m.board[m.cursorPos.x][m.cursorPos.y].isMine
+	isMine := m.board[currX][currY].isMine
 
 	switch msg := msg.(type) {
-	// Is it a key press?
 	case tea.KeyMsg:
-
-		// Cool, what was the actual key pressed?
 		switch msg.String() {
-
-		// These keys should exit the program.
 		case "ctrl+c", "q":
 			return m, tea.Quit
-
-		// The "up" and "k" keys move the cursor up
 		case "right", "h":
-			if !isGameFinished && m.cursorPos.y > 0 {
+			if !isGameFinished && currY > 0 {
 				m.cursorPos.y--
 			}
-
-		// The "down" and "j" keys move the cursor down
 		case "left", "l":
-			if !isGameFinished && m.cursorPos.y < len(m.board[0])-1 {
+			if !isGameFinished && currY < len(m.board[0])-1 {
 				m.cursorPos.y++
 			}
-
 		case "down", "j":
-			if !isGameFinished && m.cursorPos.x < len(m.board)-1 {
+			if !isGameFinished && currX < len(m.board)-1 {
 				m.cursorPos.x++
 			}
-
 		case "up", "k":
-			if !isGameFinished && m.cursorPos.x > 0 {
+			if !isGameFinished && currX > 0 {
 				m.cursorPos.x--
 			}
-
 		case "f":
 			if !isGameFinished {
-				m.board[m.cursorPos.x][m.cursorPos.y].isFlagged = !m.board[m.cursorPos.x][m.cursorPos.y].isFlagged
+				m.board[currX][currY].isFlagged = !m.board[currX][currY].isFlagged
 				m.checkWin()
 			}
-
 		case "enter":
 			if !isGameFinished && isMine {
 				m.state.lose = !m.state.lose
 			} else if !isGameFinished && !isMine {
-				m.revealCells(m.cursorPos.x, m.cursorPos.y)
+				m.revealCells(currX, currY)
 				m.checkWin()
 			}
-
 		case "r":
 			if isGameFinished {
-				m.board, m.state.lose, m.state.win = newBoard(9, 9), false, false
+				m.board, m.state.lose, m.state.win = newBoard(9, 9, 10), false, false
 			}
 		}
 	}
 
-	// Return the updated model to the Bubble Tea runtime for processing.
-	// Note that we're not returning a command.
 	return m, nil
 }
 
@@ -252,11 +223,11 @@ func (m model) View() string {
 			} else if m.cursorPos.x == i && m.cursorPos.y == j {
 				m.board[i][j].char = cursorChar
 			} else if m.board[i][j].isFlagged {
-				m.board[i][j].char = flagChar
+				m.board[i][j].char = ui.RenderText(flagChar, ui.PinkColor, false)
 			} else if m.board[i][j].count > 0 {
 				m.board[i][j].char = fmt.Sprint(m.board[i][j].count)
 			} else if m.board[i][j].count == 0 {
-				m.board[i][j].char = ui.RenderGrayText(emptyChar)
+				m.board[i][j].char = ui.RenderText(emptyChar, ui.GrayColor, false)
 			} else {
 				m.board[i][j].char = hiddenChar
 			}
@@ -274,27 +245,28 @@ func (m model) View() string {
 	}
 
 	if m.state.win {
-		s += ui.RenderGreenText("You won!")
+		s += ui.RenderText("You won!", ui.GreenColor, true)
 	} else if m.state.lose {
-		s += ui.RenderRedText("You lost!")
+		s += ui.RenderText("You lost!", ui.RedColor, true)
 	} else {
-		s += ui.RenderWhiteText("Minesweeper")
+		s += ui.RenderText("Minesweeper", ui.WhiteColor, true)
 	}
 
 	boardTable := ui.NewBoard(rows)
 
 	s += fmt.Sprintf("\n%s\n", boardTable)
+
 	if isGameFinished {
-		s += fmt.Sprintf("\nPress %s to %s.", ui.RenderBoldText("r"), ui.RenderBlueText("reload"))
+		s += fmt.Sprintf("\nPress %s to %s.", ui.RenderText("r", ui.BlueColor, true), ui.RenderText("reload", ui.WhiteColor, true))
 	}
 
-	s += fmt.Sprintf("\nPress %s to %s.\n", ui.RenderBoldText("q"), ui.RenderRedText("quit"))
+	s += fmt.Sprintf("\nPress %s to %s.\n", ui.RenderText("q", ui.RedColor, true), ui.RenderText("quit", ui.WhiteColor, true))
 
 	return s
 }
 
 func StartGame() {
-	p := tea.NewProgram(newModel(9, 9))
+	p := tea.NewProgram(newModel(9, 9, 10))
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
